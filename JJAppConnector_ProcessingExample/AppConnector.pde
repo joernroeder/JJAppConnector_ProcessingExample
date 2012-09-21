@@ -1,287 +1,283 @@
 import org.json.*;
-import java.lang.reflect.Method;
+import io.socket.*;
 
-class AppConnector extends Thread {
-  
-  private boolean isDebug, available, running;
-  
-  // app reload interval. will be updated from the server
-  private int interval = 500;
-  
-  private float APPCONNECTOR_VERSION = 0.2;
+class AppConnector implements IOCallback {
 
-  // your app
-  private PApplet applet;
+  SocketIO socket;
 
-  // interval to get new data from the server
-  private int reloadInterval;
+  // server
+  //  private String host = "http://localhost";
+  private String host = "http://192.168.178.77";
+  private int port = 3000;
 
-  private ArrayList<String> publishMethods;
-  private HashMap<String, String> publishDescriptions;
-  private HashMap<String, HashMap> syncMethods;
+  // app
+  private String appKey;
 
-  private RequestHandler handler;
+  private HashMap<String, String> descriptions; // varName, description
+  private HashMap<String, Object> publications; // varName, value
+  private HashMap<String, Object> subscriptions; // varName, value
+  private HashMap<String, String> subscriptionsShortcuts; // shortcut, name
 
-  AppConnector(PApplet applet, String appKey) {
-    publishMethods = new ArrayList();
-    publishDescriptions = new HashMap<String, String>();
+  private HashMap<String, String> currentApps; // appKey, appTitle
 
-    // synced app variables
-    syncMethods = new HashMap<String, HashMap>(); // appKey => [var1 => methodName1, var2 => methodName2]
+  private boolean updating;
 
-    handler = new RequestHandler(applet, appKey);
+  private boolean isDebug = true;
 
-    this.applet = applet;
+  AppConnector(String appKey) {
+    this.appKey = appKey;
+
+    this.descriptions = new HashMap<String, String>();
+    this.publications = new HashMap<String, Object>();
+    this.subscriptions = new HashMap<String, Object>();
+    this.subscriptionsShortcuts = new HashMap<String, String>();
+
+    this.currentApps = new HashMap<String, String>();
+
+    Properties props = new Properties();
+    props.setProperty("appkey", this.appKey);
+
+    try {
+      this.socket = new SocketIO(host + ":" + port, props);
+    }
+    catch(Exception e) {
+      e.printStackTrace();
+    }
   }
-  
-  public void setDebugResponse(boolean val) {
-    handler.setDebugResponse(val);
+
+  /**
+   * Returns, if a connection is established at the moment
+   * 
+   * @return true if a connection is established, false if the transport is
+   *         not connected or currently connecting
+   */
+  public boolean connected() {
+    return this.socket.isConnected();
   }
-  
-  public boolean getDebugResponse() {
-    return handler.getDebugResponse();
+
+  public boolean connected(String appName) {
+    return true;
   }
-  
-  public void isDebug(boolean val) {
-    isDebug = val;
+
+  public void setDebug(boolean val) {
+    this.isDebug = val;
   }
-  
+
   public boolean isDebug() {
     return isDebug;
   }
 
-  public void start() {
-    running = true;
-    println("Starting AppConnector Sync (will execute every " + interval + " milliseconds.)\n"); 
-    super.start();
+  private void debug(Object obj) {
+    if (isDebug) println(obj);
   }
 
-  /*void quit() {
-   println("Quitting."); 
-   running = false;
-   interrupt();
-   }*/
 
-  public void dispose() {
-    running = false;
+  // --- publish ------------------------------------------------
 
-//    handler.dispose();
+  public void addPublication(String varName, String desc) {
+    descriptions.put(varName, desc);
   }
 
-  public boolean available() {
-    return available;
-  }
+  public void publish(String varName, Object val) {
 
-  // app is running
-  public boolean isRunning() {
-    return running;
-  }
+    if (!descriptions.containsKey(varName)) {
+      debug("wrong varName");
+      return;
+    }
 
-  // add method name to app methods
-  public void publish(String name, String desc) {
-    //name = name.toLowerCase();
-    publishMethods.add(name);
-    publishDescriptions.put(name, desc);
-  }
+    if (updating) {
+      debug("still updating");
+      return;
+    }
 
-  public void sync() {
-    if (syncMethods.size() > 0) {
-      String data = handler.get(new JSONObject(syncMethods));
-      setMethods(new JSONObject(data));
+    if (!connected()) {
+      debug("not connected");
+      return;
+    }
+
+    updating = true;
+
+    if (isNewVal(varName, val)) {
+      // cache value
+      publications.put(varName, val);
+      // publish
+      socket.emit("update", varName, val);
     }
   }
 
-  public void sync(String appKey, String name) {
-    sync(appKey, name, name);
-  }
 
-  public void sync(String appKey, String name, String methodName) {
-    if (!syncMethods.containsKey(appKey)) {
-      syncMethods.put(appKey, new HashMap<String, String>());
-    }
-    
-    HashMap appList = syncMethods.get(appKey);
-    appList.put(name, methodName);
-    syncMethods.put(appKey, appList);
-  }
+  // --- subscribe ----------------------------------------------
 
-  public void setup() {
-    JSONObject data = handler.setup();
-    checkCurrentAppVersion((String) data.get("p5Version"));
-    
-    if (isDebug == true) {
-      loaded();
+  // joern.color
+  public void subscribeTo(String name) {
+    String[] app = split(name, ".");
+
+    if (app.length >= 2) {
+      subscribeTo(name, app[1]);
     }
     else {
-      interval = int(data.getString("interval"));
-      
-      try {
-          // Wait five seconds
-        sleep((long) getDelay(data.getInt("timestamp")));
-        loaded();
-      } 
-      catch (Exception e) {
-        e.printStackTrace();
-      }
-    }
-  }
-  
-  void checkCurrentAppVersion(String version) {
-    float v = new Float(version);
-	
-    if (v > APPCONNECTOR_VERSION) {
-      println("\n\n------------------------------------------------\n");
-      println("You're using an old version of the AppConnector!");
-      println("Go to http://appconnector.joernroeder.de/download to get the latest version.");
-      println("\n------------------------------------------------\n\n");
+      debug("nor appspace defined for varname: " + name + ". Format: app.varname");
     }
   }
 
-  
-  // ====== INTERNAL METHODS ==================================
+  public void subscribeTo(String name, String varName) {
+    subscriptions.put(name, null);
 
-  private void loaded() {
-    sync();
-    //send descriptions
-    handler.setDescription(new JSONObject(publishDescriptions));
-    
-    // start app sync
-    available = true;
-    start();
+    // add and check shortcuts
+    if (!subscriptionsShortcuts.containsKey(varName)) {
+      subscriptionsShortcuts.put(varName, name);
+    }
+    else {
+      debug("");
+    }
   }
-  
-  private long getDelay(int t) {
-    long cTime = System.currentTimeMillis() / 1000;
-    println("start in: " + (t - cTime) + " sec");
-    
-    return (t - cTime) * 1000;
-  }
-  
-  // get 
-  JSONObject publishMethods() {
-    JSONObject methods = new JSONObject();
 
-    for (int i = 0; i < publishMethods.size(); i++) {
-      String m = publishMethods.get(i);
-      JSONObject mo = publishMethod(m);
-      methods.put(m, mo.get(m));
+
+  public Object get(String varName) {
+    if (varName.indexOf(".") > -1) {
+      return subscriptions.get(varName);
+    }
+    else {
+      return subscriptions.get(subscriptionsShortcuts.get(varName));
+    }
+  }
+
+  public void start() {
+    if (this.socket != null) {
+      connectSocket();
+    }
+    else {
+      debug("no socket");
+    }
+  }
+
+  // === PRIVATE METHODS ========================================
+
+  private boolean isNewVal(String varName, Object val) {
+    if (publications.containsKey(varName)) {
+      Object oldVal = publications.get(varName);
+
+      if (oldVal.equals(val)) return false;
     }
 
-    return methods;
+    return true;
   }
 
-  /**
-   * get Method Value in a JSONObject. 
-   * So we don't have to specify a specific return type.
-   *
-   * @link http://www.rgagnon.com/javadetails/java-0031.html
-   */
-  private JSONObject publishMethod(String name) {
-    Object paramsObj[] = {
-    };
-    JSONObject o = new JSONObject();
+  private void connectSocket() {
+    this.socket.connect(this);
+    updatePublications();
+    sendSubscriptions();
+  }
+
+  private void updatePublications() {
+    socket.emit("set publications", descriptions);
+  }
+
+  private void sendSubscriptions() {
+    socket.emit("set subscriptions", subscriptions.keySet());
+  }
+
+  // --- SOCKET -------------------------------------------------
+
+  void onMessage(JSONObject json, IOAcknowledge ack) {
+    debug("Server said:" + json.toString(2));
+  }
+
+  void onMessage(String data, IOAcknowledge ack) {
+    debug("Server said: " + data);
+  }
+
+  void onError(SocketIOException socketIOException) {
+    debug("an Error occured");
+    debug(socketIOException.getStackTrace());
+  }
+
+  void onDisconnect() {
+    debug("Connection terminated.");
+  }
+
+  void onConnect() {
+    debug("Connection established");
+  }
+
+  // handle custom socket events and there callbacks defined at SocketCallbacks.java
+  void on(String event, IOAcknowledge ack, Object... args) {
+
+    String eventName = event.replace(" ", "_").toUpperCase();
 
     try {
-      Class thisClass = Class.forName(applet.args[3]);
-      Method thisMethod = thisClass.getDeclaredMethod("get" + toUpperCaseFirstChar(name));
-      o.put(name, thisMethod.invoke(applet, paramsObj));
-    } 
-    catch (Exception e) {
-      e.printStackTrace();
-    }
+      switch (SocketCallbacks.valueOf(eventName)) {
 
-    return o;
-  }
+      case CURRENTAPPS:
+        updateCurrentApps(args);
+        break;
 
-  private String getMethodNameForSyncKey(String appKey, String varName) {
-    String r = "";
-    
-    if (!syncMethods.containsKey(appKey)) return r;
+      case SUBSCRIPTIONS_SUCCESS:
+        onSubscriptionsSuccess(args);
+        break;
 
-    HashMap app = syncMethods.get(appKey);
+      case UPDATE_SUCCESS:
+        onUpdateSuccess(args);
+        break;
 
-    if (!app.containsKey(varName)) return r;
+      case BROADCAST:
+        onBroadcast(args);
+        break;
 
-    return (String) app.get(varName);
-  }
-
-  private void setMethods(JSONObject data) {
-    Iterator appKeys = data.keys();
-    while (appKeys.hasNext ()) {
-      String appKey = appKeys.next().toString();
-
-      JSONObject appData = (JSONObject) data.get(appKey);
-      Iterator methodNames = appData.keys();
-      while (methodNames.hasNext()) {
-        String methodName = methodNames.next().toString();
-        //println(methodName);
-        String name = getMethodNameForSyncKey(appKey, methodName);
-        if (!name.equals("")) {
-          setMethod(name, appData.get(methodName));
-        }
-      }
-    }
-  }
-
-  private void setMethod(String name, Object value) {
-    try {
-      Class thisClass = Class.forName(applet.args[3]);
-
-      Method methods[] = thisClass.getDeclaredMethods();
-
-      for (int i = 0; i < methods.length; i++) {  
-        Method m = methods[i];
-        Class params[] = m.getParameterTypes();
-        // if setValName
-        if (params.length != 0 && m.getName().equals("set" + toUpperCaseFirstChar(name))) {
-
-          // call method
-          m.invoke(applet, value.toString());
-          break;
-        }
+      default:
+        debug("Server triggered event '" + event + "'");
+        break;
       }
     }
     catch (Exception e) {
-      e.printStackTrace();
+      debug(e.getStackTrace());
     }
   }
 
-  void run() {
-    while (running) {
-      // store it -> post to server
-      if (publishMethods.size() > 0) {
-        handler.post(publishMethods());
-      }
-      
-      available = true;
-      try {
-        // Wait five seconds
-        sleep((long) interval / 2);
-        sync();
-        int iv = handler.getInterval();
-        sleep((long) interval / 2);
-        interval = iv;
-        
-      } 
-      catch (Exception e) {
-        e.printStackTrace();
-      }
+  void onSubscriptionsSuccess(Object... args) {
+    JSONObject subMap = (JSONObject) args[0];
+
+    Iterator<?> keys = subMap.keys();
+
+    subscriptions.clear();
+
+    while (keys.hasNext()) {
+      String key = (String) keys.next();
+      subscriptions.put(key, subMap.get(key));
     }
   }
 
-  /**
-   * Make a string's first character uppercase
-   *
-   * @param String s
-   * @return String
-   */
-  private String toUpperCaseFirstChar(String s) {
-    String u = s.substring(0, 1);
-    u = u.toUpperCase();
+  void updateCurrentApps(Object... args) {
+    JSONObject current = (JSONObject) args[0];
+    Iterator<?> keys = current.keys();
 
-    String l = s.substring(1);
+    currentApps.clear();
 
-    return u + l;
+    while (keys.hasNext()) {
+      String key = (String) keys.next();
+      if (!key.equals(this.appKey)) {
+        currentApps.put(key, (String) current.get(key));
+      }
+    }
+
+    debug(currentApps);
+  }
+
+  void onUpdateSuccess(Object... args) {
+    if ((Boolean) args[0]) {
+      updating = false;
+    }
+  }
+
+  void onBroadcast(Object... args) {
+    if (args.length < 2) return;
+
+    String name = (String) args[0];
+    Object val = args[1];
+
+    if (subscriptions.containsKey(name)) {
+      subscriptions.put(name, val);
+    }
   }
 }
 
