@@ -1,7 +1,0 @@
-
-enum SocketCallbacks {
-  CURRENTAPPS,
-  BROADCAST,
-  SUBSCRIPTIONS_SUCCESS,
-  UPDATE_SUCCESS  
-}
