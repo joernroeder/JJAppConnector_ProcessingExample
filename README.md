@@ -121,8 +121,6 @@ int randInt = app.get("david.random").toInt();
 ```
 
 Following methods are currently available:
-### toPImage()
-Tries to convert the data to an instance of PImage (see [_processing.core.PImage_](http://processing.googlecode.com/svn/trunk/processing/build/javadoc/core/processing/core/PImage.html)). If Object is null, a new instance of PImage will be returned.
 
 ### toString()
 Casts to `String`. If Object is null, an empty String will be returned.
@@ -138,6 +136,9 @@ Casts to `double`. See `toInt()` above.
 
 ### toFloat()
 Casts to `float`. See `toInt()` above.
+
+### toPImage()
+Tries to convert the data to an instance of PImage (see [_processing.core.PImage_](http://processing.googlecode.com/svn/trunk/processing/build/javadoc/core/processing/core/PImage.html)). If Object is null, a new instance of PImage will be returned.
 
 For more information on subscriptions and shortcuts, see [_subscribeTo()_](#sub).
 
