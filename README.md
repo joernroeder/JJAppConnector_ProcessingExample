@@ -138,7 +138,7 @@ Casts to `double`. See `toInt()` above.
 Casts to `float`. See `toInt()` above.
 
 ### toPImage()
-Tries to convert the data to an instance of PImage (see [_processing.core.PImage_](http://processing.googlecode.com/svn/trunk/processing/build/javadoc/core/processing/core/PImage.html)). If Object is null, a new instance of PImage will be returned.
+Tries to convert the data to an instance of `PImage` (see [_PImage Processing reference_](http://processing.org/reference/PImage.html)). If Object is null, a new instance of PImage will be returned.
 
 For more information on subscriptions and shortcuts, see [_subscribeTo()_](#sub).
 
