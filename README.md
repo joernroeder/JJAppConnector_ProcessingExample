@@ -39,8 +39,8 @@ if (app.isConnected("david")) {
 ```
 
 <a name="set-server" />
-## setServer(_String_ host, _int_ port)
-Sets the server for a custom socket connection. If used, this function must be called before _start()_. If not called, the default host ("http://appconnector.jit.su") and default port (80) will be used.
+## setServer( _String_ host, _int_ port )
+Sets the server for a custom socket connection. If used, this function must be called before _start()_. If not called, the default host (http://appconnector.jit.su) and default port (80) will be used.
 
 <a name="start" />
 ## start()
